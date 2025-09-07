@@ -1,0 +1,100 @@
+version: "3.9"
+
+services:
+  temporal:
+    image: temporalio/auto-setup:latest
+    container_name: temporal
+    environment:
+      - DB=postgres12
+      - POSTGRES_USER=postgres
+      - POSTGRES_PWD=postgres
+      - POSTGRES_SEEDS=db
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "7233:7233"
+    healthcheck:
+      test: ["CMD", "tctl", "--address", "127.0.0.1:7233", "namespace", "list"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  db:
+    image: postgres:16
+    container_name: db
+    environment:
+      POSTGRES_DB: temporal_demo
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d temporal_demo"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+
+  api:
+    image: python:3.11-slim
+    container_name: api
+    working_dir: /app
+    command: sh -c "pip install -r requirements.txt && uvicorn app.main:app --host 0.0.0.0 --port 8000"
+    volumes:
+      - ./:/app
+    environment:
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@db:5432/temporal_demo
+      TEMPORAL_TARGET: host.docker.internal:7233
+      ORDERS_TQ: orders-tq
+      SHIPPING_TQ: shipping-tq
+      RUN_TIMEOUT_SECS: "15"
+      CHILD_RUN_TIMEOUT_SECS: "8"
+      MANUAL_REVIEW_SECS: "2"
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  order-worker:
+    image: python:3.11-slim
+    container_name: order-worker
+    working_dir: /app
+    command: sh -c "pip install -r requirements.txt && python -m app.workers.order_worker"
+    volumes:
+      - ./:/app
+    environment:
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@db:5432/temporal_demo
+      TEMPORAL_TARGET: host.docker.internal:7233
+      ORDERS_TQ: orders-tq
+      SHIPPING_TQ: shipping-tq
+      RUN_TIMEOUT_SECS: "15"
+      CHILD_RUN_TIMEOUT_SECS: "8"
+      MANUAL_REVIEW_SECS: "2"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  shipping-worker:
+    image: python:3.11-slim
+    container_name: shipping-worker
+    working_dir: /app
+    command: sh -c "pip install -r requirements.txt && python -m app.workers.shipping_worker"
+    volumes:
+      - ./:/app
+    environment:
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@db:5432/temporal_demo
+      TEMPORAL_TARGET: host.docker.internal:7233
+      ORDERS_TQ: orders-tq
+      SHIPPING_TQ: shipping-tq
+      RUN_TIMEOUT_SECS: "15"
+      CHILD_RUN_TIMEOUT_SECS: "8"
+      MANUAL_REVIEW_SECS: "2"
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  pg_data:
