@@ -1,4 +1,4 @@
-## Trellis Temporal Demo (Order → Payment → Shipping)
+## Trellis Temporal (Order → Payment → Shipping)
 
 ### Overview
 
